@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Plugin configuration file for the admin console. This file must
+  live in the root of the plugin's directory.
+-->
+<plugin>
+    <class>com.surevine.spiffing.openfire.PluginMain</class>
+    <name>Spiffing</name>
+    <description>Provides support for Security Labels (XEP-0258)</description>
+    <author>Dave Cridland // Surevine Ltd</author>
+    <version>0.0.1</version>
+    <date>15/01/2016</date>
+    <minServerVersion>4.0.0</minServerVersion>
+
+    <!-- <adminconsole>
+        <tab id="tab-server">
+            <sidebar id="sidebar-server-settings">
+                <item id="spiffing-sio-config" name="${spiffing.config.title}"
+                      url="spiffing-sio-config.jsp"
+                      description="${spiffing.config.description}" />
+            </sidebar>
+        </tab>
+        <tab id="tab-users">
+            <sidebar id="sidebar-users">
+                <item id="spiffing-user-config" name="${spiffing.user.title}"
+                      url="spiffing-user-config.jsp"
+                      description="${spiffing.user.description}" />
+            </sidebar>
+        </tab>
+    </adminconsole>
+    -->
+</plugin>
