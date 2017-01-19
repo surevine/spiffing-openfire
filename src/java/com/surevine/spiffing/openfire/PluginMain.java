@@ -9,6 +9,9 @@ import org.jivesoftware.openfire.interceptor.InterceptorManager;
 import org.jivesoftware.openfire.interceptor.PacketInterceptor;
 import org.jivesoftware.openfire.interceptor.PacketRejectedException;
 import org.jivesoftware.openfire.session.Session;
+import org.jivesoftware.openfire.user.User;
+import org.jivesoftware.openfire.user.UserManager;
+import org.jivesoftware.openfire.user.UserNotFoundException;
 import org.jivesoftware.util.JiveGlobals;
 import org.jivesoftware.util.StringUtils;
 import org.slf4j.Logger;
@@ -19,9 +22,7 @@ import org.xmpp.packet.Packet;
 import org.xmpp.packet.PacketExtension;
 
 import java.io.File;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 public class PluginMain implements Plugin, PacketInterceptor {
     private static final Logger Log = LoggerFactory.getLogger(PluginMain.class);
@@ -37,6 +38,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
     CatalogueHandler catHandler0;
     CatalogueHandler catHandler2;
     ClearanceHandler clrHandler;
+    long policiesLoaded = 0;
 
     // Property names
     static String PROP_POLICY_FILES = "spiffing.policies";
@@ -47,6 +49,8 @@ public class PluginMain implements Plugin, PacketInterceptor {
     static String PROP_DEFLABEL = "spiffing.label.default";
     static String PROP_USER_PREFIX = "spiffing.clearance.user.";
     static String PROP_PEER_PREFIX = "spiffing.clearance.peer.";
+    static String PROP_USER_POL_PREFIX = "spiffing.policy.user.";
+    static String PROP_PEER_POL_PREFIX = "spiffing.policy.peer.";
 
     // Plugin bits.
 
@@ -94,6 +98,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
             for (String policyFile : StringUtils.stringToCollection(JiveGlobals.getProperty(PROP_POLICY_FILES))) {
                 Spif s = site.load(policyFile);
                 Log.info("Loaded SPIF " + s.name());
+                ++policiesLoaded;
             }
             for (String lablob : StringUtils.stringToCollection(JiveGlobals.getProperty(PROP_LABEL_CATALOGUE))) {
                 Label l = getLabel(lablob);
@@ -165,6 +170,9 @@ public class PluginMain implements Plugin, PacketInterceptor {
             Log.debug("Not a message, tossing.");
             return;
         }
+        if (policiesLoaded == 0) {
+            return;
+        }
         try {
             Label label = null;
             boolean rewritten = false;
@@ -180,6 +188,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
                     Log.debug("Got label of " + label.displayMarking());
                 }
             }
+            Set<String> target_policies = getTargetPolicies(packet.getTo());
             if (label == null) {
                 label = defaultLabel;
                 Log.debug("Label is default");
@@ -196,21 +205,39 @@ public class PluginMain implements Plugin, PacketInterceptor {
             Log.debug("Recipient");
             try (Label equiv = doACDF(getClearance(packet.getTo()), label)) {
                 if (equiv != null) {
-                    // Rewrite required; we'll rewrite the label into the target policy and display marking.
-                    Log.debug("Rewriting recipient label to " + equiv.displayMarking());
-                    rewriteExtension(packet, equiv);
-                    rewritten = true;
+                    // Is this in the target policy?
+                    if (target_policies.contains(equiv.policy().policy_id())) {
+                        // Rewrite required; we'll rewrite the label into the target policy and display marking.
+                        Log.debug("Rewriting recipient label to " + equiv.displayMarking());
+                        rewriteExtension(packet, equiv);
+                        rewritten = true;
+                    }
                 }
             }
             if (!rewritten) {
                 if (!need_rewrite) {
-                    Element displayMarking = secLabel.getElement().element("displaymarking");
-                    String dm = displayMarking.getStringValue();
-                    String fgcol = displayMarking.attributeValue("fgcolor");
-
-                    if (!(fgcol.equals(label.fgColour()) && dm.equals(label.displayMarking()))) {
-                        Log.debug("Needs rewrite anyway");
+                    if (!target_policies.contains(label.policy().policy_id())) {
                         need_rewrite = true;
+                    } else {
+                        Element displayMarking = secLabel.getElement().element("displaymarking");
+                        String dm = displayMarking.getStringValue();
+                        String fgcol = displayMarking.attributeValue("fgcolor");
+
+                        if (!(fgcol.equals(label.fgColour()) && dm.equals(label.displayMarking()))) {
+                            Log.debug("Needs rewrite anyway");
+                            need_rewrite = true;
+                        }
+                    }
+                }
+                if (!target_policies.contains(label.policy().policy_id())) {
+                    for (String policy_id : target_policies) {
+                        Spif policy = Site.site().spif(policy_id);
+                        try (Label equiv = label.encrypt(policy)) {
+                            rewriteExtension(packet, equiv);
+                            need_rewrite = false;
+                            rewritten = true;
+                            break;
+                        }
                     }
                 }
                 if (need_rewrite) {
@@ -229,10 +256,51 @@ public class PluginMain implements Plugin, PacketInterceptor {
     public LinkedHashMap<String,Clearance> getClearance(JID entity) {
         if (XMPPServer.getInstance().isLocal(entity)) {
             // Local user
-            return defaultUserClearance;
+            LinkedHashMap<String,Clearance> usercl = clearance_cache.get(entity);
+            if (usercl == null) {
+                usercl = new LinkedHashMap<>();
+                User user;
+                try {
+                    user = UserManager.getInstance().getUser(entity.getNode());
+                } catch(UserNotFoundException e) {
+                    return defaultUserClearance;
+                }
+                for (String serverCl : StringUtils.stringToCollection(user.getProperties().get("spiffing.clearance"))) {
+                    try {
+                        Clearance cl = new Clearance(serverCl);
+                        usercl.put(cl.policy().policy_id(), cl);
+                        Log.info("Loaded user clearance " + cl.displayMarking());
+                    } catch (SIOException e) {
+                        Log.warn("User clearance for " + entity + " failed to load:", e);
+                    }
+                }
+                if (usercl.isEmpty()) {
+                    return defaultUserClearance;
+                }
+                clearance_cache.put(entity, usercl);
+            }
+            return usercl;
         } else {
-            // Remote domain.
-            return defaultPeerClearance;
+            // Local user
+            LinkedHashMap<String,Clearance> peercl = clearance_cache.get(entity);
+            if (peercl == null) {
+                peercl = new LinkedHashMap<>();
+                for (String serverCl : StringUtils.stringToCollection(JiveGlobals.getProperty(PROP_PEER_PREFIX + entity.getDomain()))) {
+                    try {
+                        Clearance cl = new Clearance(serverCl);
+                        peercl.put(cl.policy().policy_id(), cl);
+                        Log.info("Loaded peer clearance " + cl.displayMarking());
+                    } catch (SIOException e) {
+                        Log.warn("Peer clearance for " + entity + " failed to load:", e);
+                    }
+
+                }
+                if (peercl.isEmpty()) {
+                    return defaultPeerClearance;
+                }
+                clearance_cache.put(entity, peercl);
+            }
+            return peercl;
         }
     }
 
@@ -279,6 +347,19 @@ public class PluginMain implements Plugin, PacketInterceptor {
         } catch (SIOException e) {
             throw new PacketRejectedException(e);
         }
+    }
+
+    Set<String> getTargetPolicies(JID entity) {
+        Set<String> pols = new HashSet<>();
+        if (XMPPServer.getInstance().isLocal(entity)) {
+            pols.addAll(StringUtils.stringToCollection(JiveGlobals.getProperty(PROP_USER_POL_PREFIX + entity.getNode())));
+        } else {
+            pols.addAll(StringUtils.stringToCollection(JiveGlobals.getProperty(PROP_PEER_POL_PREFIX + entity.getDomain())));
+        }
+        if (pols.isEmpty()) {
+            pols.addAll(getClearance(entity).keySet());
+        }
+        return pols;
     }
 
     private void rewriteExtension(Packet packet, Label label) throws PacketRejectedException {
