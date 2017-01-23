@@ -1,7 +1,9 @@
 package com.surevine.spiffing.openfire;
 
 import com.surevine.spiffing.*;
+import org.dom4j.DocumentException;
 import org.dom4j.Element;
+import org.dom4j.io.SAXReader;
 import org.jivesoftware.openfire.XMPPServer;
 import org.jivesoftware.openfire.container.Plugin;
 import org.jivesoftware.openfire.container.PluginManager;
@@ -22,6 +24,7 @@ import org.xmpp.packet.Packet;
 import org.xmpp.packet.PacketExtension;
 
 import java.io.File;
+import java.io.StringReader;
 import java.util.*;
 
 public class PluginMain implements Plugin, PacketInterceptor {
@@ -47,7 +50,6 @@ public class PluginMain implements Plugin, PacketInterceptor {
     static String PROP_DEFUSER_CLEARANCE = "spiffing.clearance.user.default";
     static String PROP_DEFPEER_CLEARANCE = "spiffing.clearance.peer.default";
     static String PROP_DEFLABEL = "spiffing.label.default";
-    static String PROP_USER_PREFIX = "spiffing.clearance.user.";
     static String PROP_PEER_PREFIX = "spiffing.clearance.peer.";
     static String PROP_USER_POL_PREFIX = "spiffing.policy.user.";
     static String PROP_PEER_POL_PREFIX = "spiffing.policy.peer.";
@@ -186,6 +188,10 @@ public class PluginMain implements Plugin, PacketInterceptor {
                     String labelstr = labelElement.getStringValue();
                     label = getLabel(labelstr);
                     Log.debug("Got label of " + label.displayMarking());
+                } else if (labelElement.getNamespaceURI().equals("urn:nato:stanag:4774:confidentialitymetadatalabel:1:0")) {
+                    String labelstr = labelElement.toString();
+                    label = getLabel(labelstr);
+                    Log.debug("Got a NATO label " + label.displayMarking());
                 }
             }
             Set<String> target_policies = getTargetPolicies(packet.getTo());
@@ -254,6 +260,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
     // XEP-0258 support
 
     public LinkedHashMap<String,Clearance> getClearance(JID entity) {
+        Log.debug("Locating clearance for " + entity);
         if (XMPPServer.getInstance().isLocal(entity)) {
             // Local user
             LinkedHashMap<String,Clearance> usercl = clearance_cache.get(entity);
@@ -275,6 +282,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
                     }
                 }
                 if (usercl.isEmpty()) {
+                    Log.debug("Using default user clearance");
                     return defaultUserClearance;
                 }
                 clearance_cache.put(entity, usercl);
@@ -296,6 +304,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
 
                 }
                 if (peercl.isEmpty()) {
+                    Log.debug("Using default peer clearance");
                     return defaultPeerClearance;
                 }
                 clearance_cache.put(entity, peercl);
@@ -322,7 +331,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
             if (cls.containsKey(l.policy().policy_id())) {
                 // Have a matching clearance, just use that.
                 if (!cls.get(l.policy().policy_id()).dominates(l)) {
-                    throw new PacketRejectedException("ACDF failure (policy match)");
+                    throw new PacketRejectedException("ACDF failure (policy match) [" + cls.get(l.policy().policy_id()).displayMarking() + "] << [" + l.displayMarking() + "]");
                 }
                 return null;
             } else {
@@ -383,8 +392,17 @@ public class PluginMain implements Plugin, PacketInterceptor {
         }
         dm.addText(label.displayMarking());
 
-        Element sl = el.addElement("label").addElement("esssecuritylabel", "urn:xmpp:sec-label:ess:0");
-        sl.addText(label.toESSBase64());
+        Element container = el.addElement("label");
+        SAXReader reader = new SAXReader();
+        reader.setEncoding("UTF-8");
+        try {
+            Element nato = reader.read(new StringReader(label.toNATOXML())).getRootElement();
+
+            container.add(nato.createCopy());
+        } catch(DocumentException e) {
+            Log.warn("Encoded label does not parse: ", e);
+            throw new SIOException("Label encoding error");
+        }
     }
 
     // Catalogue support
