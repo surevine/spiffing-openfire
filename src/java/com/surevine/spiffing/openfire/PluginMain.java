@@ -4,6 +4,7 @@ import com.surevine.spiffing.*;
 import org.dom4j.DocumentException;
 import org.dom4j.Element;
 import org.dom4j.io.SAXReader;
+import org.jivesoftware.openfire.PacketRouter;
 import org.jivesoftware.openfire.XMPPServer;
 import org.jivesoftware.openfire.container.Plugin;
 import org.jivesoftware.openfire.container.PluginManager;
@@ -18,10 +19,7 @@ import org.jivesoftware.util.JiveGlobals;
 import org.jivesoftware.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xmpp.packet.JID;
-import org.xmpp.packet.Message;
-import org.xmpp.packet.Packet;
-import org.xmpp.packet.PacketExtension;
+import org.xmpp.packet.*;
 
 import java.io.File;
 import java.io.StringReader;
@@ -42,6 +40,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
     CatalogueHandler catHandler2;
     ClearanceHandler clrHandler;
     long policiesLoaded = 0;
+    PacketRouter router = null;
 
     // Property names
     static String PROP_POLICY_FILES = "spiffing.policies";
@@ -87,6 +86,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
                 return false;
             }
         };
+        router = XMPPServer.getInstance().getPacketRouter();
         try {
             System.out.println("Spiffing XEP-0258 module loading...");
             Log.info("Spiffing XEP-0258 module loading...");
@@ -189,7 +189,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
                     label = getLabel(labelstr);
                     Log.debug("Got label of " + label.displayMarking());
                 } else if (labelElement.getNamespaceURI().equals("urn:nato:stanag:4774:confidentialitymetadatalabel:1:0")) {
-                    String labelstr = labelElement.toString();
+                    String labelstr = labelElement.asXML();
                     label = getLabel(labelstr);
                     Log.debug("Got a NATO label " + label.displayMarking());
                 }
@@ -226,12 +226,16 @@ public class PluginMain implements Plugin, PacketInterceptor {
                         need_rewrite = true;
                     } else {
                         Element displayMarking = secLabel.getElement().element("displaymarking");
-                        String dm = displayMarking.getStringValue();
-                        String fgcol = displayMarking.attributeValue("fgcolor");
-
-                        if (!(fgcol.equals(label.fgColour()) && dm.equals(label.displayMarking()))) {
-                            Log.debug("Needs rewrite anyway");
+                        if (displayMarking == null) {
                             need_rewrite = true;
+                        } else {
+                            String dm = displayMarking.getStringValue();
+                            String fgcol = displayMarking.attributeValue("fgcolor");
+
+                            if (!(fgcol.equals(label.fgColour()) && dm.equals(label.displayMarking()))) {
+                                Log.debug("Needs rewrite anyway");
+                                need_rewrite = true;
+                            }
                         }
                     }
                 }
@@ -253,6 +257,16 @@ public class PluginMain implements Plugin, PacketInterceptor {
             }
         } catch (Exception e) {
             Log.info("ACDF rejection: ", e);
+            if (incoming) {
+                Message msg = (Message)packet;
+                Message error = new Message(); // Don't copy; it might introduce an invalid label.
+                error.setTo(msg.getFrom());
+                error.setFrom(msg.getTo());
+                error.setID(msg.getID());
+                error.setError(PacketError.Condition.forbidden);
+                error.setType(Message.Type.error);
+                XMPPServer.getInstance().getMessageRouter().route(error);
+            }
             throw new PacketRejectedException(e);
         }
     }
