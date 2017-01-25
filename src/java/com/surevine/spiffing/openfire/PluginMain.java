@@ -175,6 +175,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
         if (policiesLoaded == 0) {
             return;
         }
+        Message msg = (Message)packet;
         try {
             Label label = null;
             boolean rewritten = false;
@@ -200,13 +201,17 @@ public class PluginMain implements Plugin, PacketInterceptor {
                 Log.debug("Label is default");
                 need_rewrite = true;
             }
-            Log.debug("Server");
-            try (Label equiv = doACDF(serverClearance, label)) {
-                // If policy mismatch occurs here, we'll ignore it.
-            }
-            Log.debug("Sender");
-            try (Label equiv = doACDF(getClearance(packet.getFrom()), label)) {
-                // Likewise here, although that'd be pretty weird.
+            if (msg.getType() != Message.Type.error) {
+                Log.debug("Sender");
+                try (Label equiv = doACDF(getClearance(packet.getFrom()), label)) {
+                    // Likewise here, although that'd be pretty weird.
+                }
+                Log.debug("Server");
+                try (Label equiv = doACDF(serverClearance, label)) {
+                    // If policy mismatch occurs here, we'll ignore it.
+                }
+            } else {
+                Log.debug("Skipped originator and server checks for bounced message");
             }
             Log.debug("Recipient");
             try (Label equiv = doACDF(getClearance(packet.getTo()), label)) {
@@ -258,14 +263,15 @@ public class PluginMain implements Plugin, PacketInterceptor {
         } catch (Exception e) {
             Log.info("ACDF rejection: ", e);
             if (incoming) {
-                Message msg = (Message)packet;
-                Message error = new Message(); // Don't copy; it might introduce an invalid label.
-                error.setTo(msg.getFrom());
-                error.setFrom(msg.getTo());
-                error.setID(msg.getID());
-                error.setError(PacketError.Condition.forbidden);
-                error.setType(Message.Type.error);
-                XMPPServer.getInstance().getMessageRouter().route(error);
+                if (msg.getType() != Message.Type.error) {
+                    Message error = new Message(); // Don't copy; it might introduce an invalid label.
+                    error.setTo(msg.getFrom());
+                    error.setFrom(msg.getTo());
+                    error.setID(msg.getID());
+                    error.setError(PacketError.Condition.forbidden);
+                    error.setType(Message.Type.error);
+                    XMPPServer.getInstance().getMessageRouter().route(error);
+                }
             }
             throw new PacketRejectedException(e);
         }
@@ -318,8 +324,14 @@ public class PluginMain implements Plugin, PacketInterceptor {
 
                 }
                 if (peercl.isEmpty()) {
-                    Log.debug("Using default peer clearance");
-                    return defaultPeerClearance;
+                    // Might want to use the default clearance here, or the server clearance as default if it's a local domain.
+                    if (XMPPServer.getInstance().matchesComponent(new JID(entity.getDomain()))) {
+                        Log.debug("Using server clearance for local domain");
+                        return serverClearance;
+                    } else {
+                        Log.debug("Using default peer clearance");
+                        return defaultPeerClearance;
+                    }
                 }
                 clearance_cache.put(entity, peercl);
             }
