@@ -25,7 +25,7 @@ public class ClearanceHandler extends IQHandler {
     private static final Logger Log = LoggerFactory.getLogger(ClearanceHandler.class);
     PluginMain plugin;
     IQHandlerInfo info;
-    static String NS_CLEARANCE = "http://surevine.com/spiffing/clearance-query";
+    static String NS_CLEARANCE = "http://surevine.com/spiffing";
 
     public ClearanceHandler(PluginMain plugin) {
         super("Clearance Handler");
