@@ -15,9 +15,6 @@ import org.xmpp.packet.PacketError;
 
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.StringReader;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 
 /**
  * Created by dwd on 01/02/17.

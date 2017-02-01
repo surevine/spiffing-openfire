@@ -39,6 +39,7 @@ public class PluginMain implements Plugin, PacketInterceptor {
     CatalogueHandler catHandler0;
     CatalogueHandler catHandler2;
     ClearanceHandler clrHandler;
+    PolicyDump policyDump;
     long policiesLoaded = 0;
     PacketRouter router = null;
 
@@ -139,6 +140,8 @@ public class PluginMain implements Plugin, PacketInterceptor {
         XMPPServer.getInstance().getIQRouter().addHandler(this.catHandler0);
         this.clrHandler = new ClearanceHandler(this);
         XMPPServer.getInstance().getIQRouter().addHandler(this.clrHandler);
+        this.policyDump = new PolicyDump(this);
+        XMPPServer.getInstance().getIQRouter().addHandler(this.policyDump);
         XMPPServer.getInstance().getIQDiscoInfoHandler().addServerFeature("urn:xmpp:sec-label:0");
         XMPPServer.getInstance().getIQDiscoInfoHandler().addServerFeature("urn:xmpp:sec-label:catalog:0");
         XMPPServer.getInstance().getIQDiscoInfoHandler().addServerFeature("urn:xmpp:sec-label:catalog:2");
@@ -153,6 +156,8 @@ public class PluginMain implements Plugin, PacketInterceptor {
         this.catHandler0 = null;
         XMPPServer.getInstance().getIQRouter().removeHandler(this.clrHandler);
         this.clrHandler = null;
+        XMPPServer.getInstance().getIQRouter().removeHandler(this.policyDump);
+        this.policyDump = null;
         // Clear label/clearance cache
         // Destroy labels and clearances.
         try {
