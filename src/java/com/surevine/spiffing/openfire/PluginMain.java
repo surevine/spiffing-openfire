@@ -217,6 +217,13 @@ public class PluginMain implements Plugin, PacketInterceptor {
             try (Label equiv = doACDF(getClearance(packet.getTo()), label)) {
                 if (equiv != null) {
                     // Is this in the target policy?
+                    Log.debug("Recipient ACDF generated equivalent label");
+                    if (equiv.policy() != null) {
+                        Log.debug("Here");
+                        Log.debug("Policy Name is " + equiv.policy().name());
+                        Log.debug("Policy ID is " + equiv.policy().policy_id());
+                    }
+                    Log.debug("Displaymarking is " + equiv.displayMarking());
                     if (target_policies.contains(equiv.policy().policy_id())) {
                         // Rewrite required; we'll rewrite the label into the target policy and display marking.
                         Log.debug("Rewriting recipient label to " + equiv.displayMarking());
@@ -364,13 +371,17 @@ public class PluginMain implements Plugin, PacketInterceptor {
                 for (Map.Entry<String, Clearance> entry : cls.entrySet()) {
                     try {
                         Spif clpolicy = entry.getValue().policy();
-                        try (Label equiv = l.encrypt(clpolicy)) {
+                        Label equiv = null;
+                        try {
+                            equiv = l.encrypt(clpolicy);
                             if (entry.getValue().dominates(equiv)) {
                                 return equiv;
                             } else {
+                                equiv.dispose();;
                                 throw new PacketRejectedException("ACDF failure (equiv fails)");
                             }
                         } catch (SIOException e) {
+                            if (equiv != null) equiv.dispose();
                             // Ignore; missing encrypt or label fails to dominate.
                         }
                     } catch (Exception e) {
