@@ -242,9 +242,16 @@ public class PluginMain implements Plugin, PacketInterceptor {
                             need_rewrite = true;
                         } else {
                             String dm = displayMarking.getStringValue();
+                            boolean dm_match = (dm.equals(label.displayMarking()));
                             String fgcol = displayMarking.attributeValue("fgcolor");
+                            boolean col_match = false;
+                            if (fgcol == null) {
+                                col_match = (label.fgColour() == null);
+                            } else {
+                                col_match = fgcol.equals(label.fgColour());
+                            }
 
-                            if (!(fgcol.equals(label.fgColour()) && dm.equals(label.displayMarking()))) {
+                            if (!(col_match && dm_match)) {
                                 Log.debug("Needs rewrite anyway");
                                 need_rewrite = true;
                             }
