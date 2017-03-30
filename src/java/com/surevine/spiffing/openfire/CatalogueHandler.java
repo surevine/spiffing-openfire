@@ -18,12 +18,12 @@ import java.util.Set;
 
 public class CatalogueHandler extends IQHandler {
     private final IQHandlerInfo info;
-    private final PluginMain plugin;
+    private final NewPlugin plugin;
     private boolean ns2;
     public final static String NS0_CATALOG = "urn:xmpp:sec-label:catalog:0";
     public final static String NS2_CATALOG = "urn:xmpp:sec-label:catalog:2";
 
-    public CatalogueHandler(PluginMain plugin, boolean ns2) {
+    public CatalogueHandler(NewPlugin plugin, boolean ns2) {
         super("XEP-0258 Catalogue Handler");
         this.plugin = plugin;
         this.info = new IQHandlerInfo("catalog", ns2 ? NS2_CATALOG : NS0_CATALOG);
@@ -35,9 +35,9 @@ public class CatalogueHandler extends IQHandler {
             Element item = catalog.addElement("item");
             item.addAttribute("selector", label.displayMarking());
 
-            this.plugin.populate258(item.addElement("securitylabel", "urn:xmpp:sec-label:0"), label);
+            item.add(this.plugin.rewrite(label).getElement());
         } else {
-            this.plugin.populate258(catalog.addElement("securitylabel", "urn:xmpp:sec-label:0"), label);
+            catalog.add(this.plugin.rewrite(label).getElement());
         }
     }
 
@@ -47,10 +47,10 @@ public class CatalogueHandler extends IQHandler {
         Set<String> included = new HashSet<>();
         Element catalog = reply.setChildElement("catalog", ns2 ? NS2_CATALOG : NS0_CATALOG);
         Element req = packet.getChildElement();
-        LinkedHashMap<String,Clearance> source_clearance = this.plugin.getClearance(packet.getFrom());
-        LinkedHashMap<String,Clearance> target_clearance = this.plugin.getClearance(new JID(req.attributeValue("to")));
+        LinkedHashMap<String,Clearance> source_clearance = this.plugin.getSpiffingClearance(packet.getFrom());
+        LinkedHashMap<String,Clearance> target_clearance = this.plugin.getSpiffingClearance(new JID(req.attributeValue("to")));
         // Add some attributes.
-        for (Label label : this.plugin.catalogue()) {
+        for (Label label : this.plugin.getCatalogue()) {
             try {
                 String dm = label.displayMarking();
                 if (included.contains(dm)) {
@@ -66,19 +66,24 @@ public class CatalogueHandler extends IQHandler {
                 String cat_policy = label.policy().policy_id();
                 // First look for simple match:
                 if (source_clearance.containsKey(cat_policy) && target_clearance.containsKey(cat_policy)) {
-                    addCatItem(catalog, label);
-                    needs_adding = false;
+                    if (source_clearance.get(cat_policy).dominates(label) && target_clearance.get(cat_policy).dominates(label)) {
+                        addCatItem(catalog, label);
+                        needs_adding = false;
+                        break;
+                    } else {
+                        // Failed ACDF, give up on this label.
+                        needs_adding = false;
+                        break;
+                    }
                 } else {
                     // Now iterate through available source policies and see if we can find a policy match.
                     for (String source_policy : source_clearance.keySet()) {
                         if (target_clearance.containsKey(source_policy)) {
                             try (Label equiv = label.encrypt(Site.site().spif(source_policy))) {
-                                if (source_clearance.get(source_policy).dominates(equiv)) {
-                                    if (target_clearance.get(source_policy).dominates(equiv)) {
-                                        addCatItem(catalog, equiv);
-                                        needs_adding = false;
-                                        break;
-                                    }
+                                if (source_clearance.get(source_policy).dominates(equiv) && target_clearance.get(source_policy).dominates(equiv)) {
+                                    addCatItem(catalog, equiv);
+                                    needs_adding = false;
+                                    break;
                                 } else {
                                     // Failed ACDF, give up on this label.
                                     needs_adding = false;
@@ -92,10 +97,9 @@ public class CatalogueHandler extends IQHandler {
                 }
                 if (needs_adding) {
                     // Still not added; try performing basic clearance checks instead.
-                    try (Label equiv = this.plugin.doACDF(source_clearance, label)) {
-                        try (Label equiv2 = this.plugin.doACDF(target_clearance, equiv == null ? label : equiv)) {
-                            addCatItem(catalog, equiv == null ? label : equiv);
-                        }
+                    try (Label equiv = this.plugin.check(source_clearance, label, packet.getFrom())) {
+                        this.plugin.check(target_clearance, equiv == null ? label : equiv, null);
+                        addCatItem(catalog, equiv == null ? label : equiv);
                     } catch (Exception e) {
                         continue;
                     }
