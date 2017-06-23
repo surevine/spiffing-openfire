@@ -50,6 +50,34 @@ public class ClearanceHandler extends IQHandler {
         if (req.getName().equals("clearance")) {
             Element catalog = reply.setChildElement("clearance", NS_CLEARANCE);
             LinkedHashMap<String, Clearance> target_clearance = this.plugin.getSpiffingClearance(packet.getFrom());
+            boolean any = false;
+            if (catalog.attribute("for") == null) {
+                LinkedHashMap<String, Clearance> for_clearance = this.plugin.getSpiffingClearance(catalog.attributeValue("for"));
+                for (Map.Entry<String, Clearance> e : target_clearance.entrySet()) {
+                    if (for_clearance.containsKey(e.getKey())) {
+                        try (Clearance combined = e.getValue().restrict(for_clearance.get(e.getKey()))) {
+                            SAXReader reader = new SAXReader();
+                            reader.setEncoding("UTF-8");
+                            try {
+                                Element item = catalog.addElement("item");
+                                item.addAttribute("policy-id", e.getKey());
+                                item.addAttribute("policy", combined.policy().name());
+                                Element nato = reader.read(new StringReader(combined.toNATOXML())).getRootElement();
+                                item.add(nato.createCopy());
+                                any = true;
+                            } catch (SIOException ex) {
+                                Log.warn("Internal spiffing error: ", ex);
+                                reply.setError(PacketError.Condition.internal_server_error);
+                            } catch (DocumentException ex) {
+                                Log.warn("Encoded label does not parse: ", ex);
+                                reply.setError(PacketError.Condition.internal_server_error);
+                            }
+                        } catch (Exception ex) {
+                            Log.debug("Exception thrown when combining clearances: ", ex);
+                        }
+                    }
+                }
+            }
             for (Map.Entry<String, Clearance> e : target_clearance.entrySet()) {
                 SAXReader reader = new SAXReader();
                 reader.setEncoding("UTF-8");
