@@ -319,12 +319,13 @@ public class NewPlugin extends AbstractACDF implements Plugin {
     private void dispose(LinkedHashMap<String, Clearance> clearances) {
         for (String policy : clearances.keySet()) {
             try {
-                Clearance c = clearances.remove(policy);
+                Clearance c = clearances.get(policy);
                 c.close();
             } catch (Exception ex) {
                 Log.warn("While freeing Clearance: ", ex);
             }
         }
+        clearances.clear();
     }
 
     Label getEquiv(JID entity, Label input, LinkedHashMap<String,Clearance> clearances) {
