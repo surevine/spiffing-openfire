@@ -177,6 +177,17 @@ public class NewPlugin extends AbstractACDF implements Plugin {
     }
 
     @Override
+    public String asESS(SecurityLabel label) {
+        try {
+            Label l = getLabel(label);
+            return l.toESSBase64();
+        } catch (SIOException e) {
+            Log.warn("Exception during input or rewrite: ", e);
+            throw new SecurityLabelException("ACDF Failure: " + e.getMessage());
+        }
+    }
+
+    @Override
     public SecurityLabel check(String clearanceString, SecurityLabel label, JID rewrite) {
         LinkedHashMap<String, Clearance> clearances = getSpiffingClearance(clearanceString);
         try {
