@@ -5,6 +5,7 @@ import com.surevine.spiffing.Label;
 import com.surevine.spiffing.SIOException;
 import org.dom4j.DocumentException;
 import org.dom4j.Element;
+import org.dom4j.QName;
 import org.dom4j.io.SAXReader;
 import org.jivesoftware.openfire.IQHandlerInfo;
 import org.jivesoftware.openfire.auth.UnauthorizedException;
@@ -94,6 +95,33 @@ public class ClearanceHandler extends IQHandler {
                     Log.warn("Encoded label does not parse: ", ex);
                     reply.setError(PacketError.Condition.internal_server_error);
                 }
+            }
+        } else if (req.getName().equals("convert-clearance")) {
+            Log.info("Converting packet" + packet.toString());
+            try {
+                Element natoIn = req.element(QName.get("ConfidentialityClearance", "urn:nato:stanag:4774:confidentialityclearance:1:0"));
+
+                if (natoIn != null) {
+                    Clearance clearance = new Clearance(natoIn.asXML());
+                    Element clear = reply.setChildElement("convert-clearance", NS_CLEARANCE);
+                    clear.setText(clearance.toESSBase64());
+                } else {
+                    Clearance clearance = new Clearance(req.getTextTrim());
+                    Log.info("Made a clearance " + clearance.toNATOXML());
+                    Element clear = reply.setChildElement("convert-clearance", NS_CLEARANCE);
+                    Element item = clear.addElement("item");
+
+                    SAXReader reader = new SAXReader();
+                    reader.setEncoding("UTF-8");
+                    Element nato = reader.read(new StringReader(clearance.toNATOXML())).getRootElement();
+                    item.add(nato.createCopy());
+                }
+            } catch (SIOException ex) {
+                Log.warn("Internal spiffing error: ", ex);
+                reply.setError(PacketError.Condition.internal_server_error);
+            } catch (DocumentException ex) {
+                Log.warn("Encoded label does not parse: ", ex);
+                reply.setError(PacketError.Condition.internal_server_error);
             }
         } else if (req.getName().equals("label")) {
             SecurityLabel secLabel = new SecurityLabel(req.element("securitylabel"));
